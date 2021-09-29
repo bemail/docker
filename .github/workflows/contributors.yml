@@ -5,48 +5,66 @@ on:
     - cron:  '0 0 * * *'
 
 jobs:
-  delete-old-branch:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Delete old contributors-update branch
-        uses: dawidd6/action-delete-branch@v3
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          branches: contributors-update
-
   add-contributors:
     runs-on: ubuntu-latest
-    needs: delete-old-branch
     steps:
+      # Ensure we're checking out the master branch as our base:
       - uses: actions/checkout@v2
-
-      - name: Create contributors-update branch
-        uses: peterjgrainger/action-create-branch@v2.0.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          branch: 'contributors-update'
+          ref: master
+          # This will enable additional workflows to trigger to `push`/`pull_request`/etc events caused by this workflow:
+          # ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # Alternatively use a better alternative to a PAT:
+          # https://github.com/peter-evans/create-pull-request/blob/master/docs/concepts-guidelines.md#authenticating-with-github-app-generated-tokens
+          # Either of these can replace the last two steps dedicated to the lint status.
 
-      - name: Auto-add contributors
+      - name: 'Update CONTRIBUTORS.md'
         uses: BobAnkh/add-contributors@v0.2.2
         with:
-          BRANCH: 'contributors-update'
-          PULL_REQUEST: 'master'
-          CONTRIBUTOR: '## Contributors'
-          COLUMN_PER_ROW: '6'
           ACCESS_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          # The remote branch to commit and push changes to:
+          BRANCH: 'contributors-update'
+          COMMIT_MESSAGE: 'chore: Update `CONTRIBUTORS.md`'
+          # Target file on `BRANCH` to modify:
+          PATH: '/CONTRIBUTORS.md'
+          # Marker for generated content in `PATH` to be added/updated:
+          CONTRIBUTOR: '## Contributors'
+          # Template settings:
+          COLUMN_PER_ROW: '6'
           IMG_WIDTH: '100'
           FONT_SIZE: '14'
-          PATH: '/CONTRIBUTORS.md'
-          COMMIT_MESSAGE: 'docs(CONTRIBUTORS): update contributors'
           AVATAR_SHAPE: 'round'
+          # Delegate PR creation to a separate action
+          # PULL_REQUEST: 'master'
+
+      # This action can create a remote branch, and push changes (commits any changes first if necessary), followed by creating/updating a PR.
+      # Ensures only a single PR for the branch is managed, with various behaviour config depending on requirements.
+      - name: 'Create Pull Request'
+        uses: peter-evans/create-pull-request@v3
+        with:
+            token: ${{ secrets.GITHUB_TOKEN }}
+            branch: 'contributors-update'
+            title: 'chore: Update `CONTRIBUTORS.md`'
+            body: |
+              Updated `CONTRIBUTORS.md` via the CI workflow: [`contributors.yml`][workflow].
+              
+              [workflow]: https://github.com/docker-mailserver/docker-mailserver/blob/master/.github/workflows/contributors.yml
+            # Should not be required due to all changes locally comitted by prior step:
+            # commit-message: 'chore: Update `CONTRIBUTORS.md`'
+            # Other inputs of interest are `base`, `delete-branch`, `branch-suffix`, `committer`.
+            # More information: 
+            # https://github.com/peter-evans/create-pull-request/tree/master#action-inputs
+            # https://github.com/peter-evans/create-pull-request/tree/master#action-behaviour
+            # https://github.com/peter-evans/create-pull-request/tree/master#alternative-strategy---always-create-a-new-pull-request-branch
+            # https://github.com/peter-evans/create-pull-request/blob/master/docs/concepts-guidelines.md#triggering-further-workflow-runs
+            # https://github.com/peter-evans/create-pull-request/blob/master/docs/concepts-guidelines.md#push-using-ssh-deploy-keys
 
       # This workflow will not trigger a `pull_request` event without a PAT.
       # The lint workflow is not important for this type of PR, skip it and pretend it was successful:
       - name: 'Get the latest commit hash from the contributors-update branch'
         id: commit-data
-        run: 'echo "::set-output name=head_sha::$(git rev-parse contributors-update)"'
+        # `@` refers to the HEAD commit of the current checkout ref, it should match what previous actions committed:
+        run: 'echo "::set-output name=head_sha::$(git rev-parse @)"'
 
       - name: 'Commit Status: Set Lint status to success (skipped)'
         uses: myrotvorets/set-commit-status-action@1.1.4

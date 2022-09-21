@@ -19,10 +19,25 @@ function _pre_installation_steps
   apt-get "${QUIET}" update
 
   _log 'trace' 'Installing packages that are needed early'
-  apt-get "${QUIET}" install --no-install-recommends apt-utils 2>/dev/null
+  apt-get "${QUIET}" install --no-install-recommends \
+    apt-transport-https apt-utils curl gnupg2 ssl-cert 2>/dev/null
 
   _log 'trace' 'Upgrading packages'
   apt-get "${QUIET}" upgrade
+}
+
+function _setup_rspamd_ppa
+{
+  mkdir -p /etc/apt/keyrings
+  curl https://rspamd.com/apt-stable/gpg.key \
+    | gpg --dearmor \
+    | tee /etc/apt/keyrings/rspamd.gpg >/dev/null
+
+  echo \
+    "deb [arch=amd64 signed-by=/etc/apt/keyrings/rspamd.gpg] http://rspamd.com/apt-stable/ bullseye main" \
+    >/etc/apt/sources.list.d/rspamd.list
+
+  apt-get "${QUIET}" update
 }
 
 function _install_postfix
@@ -56,6 +71,7 @@ function _install_packages
   ANTI_VIRUS_SPAM_PACKAGES=(
     amavisd-new clamav clamav-daemon
     fail2ban pyzor razor spamassassin
+    redis-server rspamd
   )
 
   CODECS_PACKAGES=(
